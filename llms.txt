@@ -1,0 +1,63 @@
+# SibFly
+> Satellite-measured ground motion (sinking and uplift) for any US address, in mm/year AND in/year, from NASA OPERA DISP-S1 (Sentinel-1 InSAR).
+
+## Endpoints
+- GET /api/v1/motion?address=<address>   (or ?lat=&lon=)  -> one report. Costs $0.40 from prepaid credits.
+    optional: &include=timeseries (embed full history in the same call), &brief=1 (plain-English narration).
+- POST /api/v1/motion/batch  body {"items":[{"id":"a","address":"..."},{"id":"b","lat":..,"lon":..}]}  -> array; up to 1000; ONLY covered rows are billed.
+- GET /api/v1/balance  -> credits_usd, price_per_report_usd, reports_remaining_est, top_up_url. Free.
+- GET /api/v1/timeseries , /api/v1/map , /api/v1/coverage (coverage is free).
+- No key -> free teaser with coverage, confidence, and would_cost_usd (a free 'should I buy?' check).
+
+## Response fields (every value carries its unit in the key name)
+- velocity_vertical_mm_yr + velocity_vertical_in_yr, velocity_uncertainty_mm_yr + _in_yr, seasonal_amplitude_mm + _in,
+  total_motion_mm + _in, display_units, trend, assessment, confidence, frame, n_measurements, span_years,
+  last_observation, data_age_days, data_coverage, provenance{calibration,...}, pixel_polygon, cell_size_m.
+- Billing on every paid response: cost_usd, credits_remaining_usd, request_id (also headers X-Request-Id, X-Credits-Remaining).
+
+## Agent notes
+- Auth: header 'Authorization: Bearer <api_key>'.
+- Idempotency: send header 'Idempotency-Key: <unique>'; a retry with the same key replays the cached result and is NOT charged again (7 days). Works on motion and batch.
+- Misses are FREE: out-of-coverage / no-data / bad address return HTTP 200 with coverage:false and cost_usd:0 (never 404, never billed).
+- Out of credits: HTTP 402 with top_up_url + suggested_top_up_usd so you can self-refill. Errors are JSON {error,code,message,retryable,doc_url,request_id}.
+- Rate limit (un-keyed only): HTTP 429 with Retry-After. Bearer keys are not rate-limited.
+
+## Get a key (free, no card, no phone, no name)
+- POST https://sibfly.com/signup with form fields email, password, agree=1. Your API key is shown on /dashboard. First report free.
+
+## Docs
+- Interactive: https://sibfly.com/api/docs   OpenAPI: https://sibfly.com/openapi.json   Index: https://sibfly.com/api/v1
+- US coverage, expanding. Information only, not a survey or guarantee. Terms: https://sibfly.com/terms
+
+## Query params on GET /api/v1/motion
+- dry_run=1 -> FREE 'should I buy?' oracle on a covered point: coverage, confidence, data_age_days, would_cost_usd (never the rate, never billed).
+- max_age_days=N -> if the best data is older than N days, returns status:stale_data at $0 (not billed) instead of a stale reading.
+- min_confidence=X (0-1) -> if pixel confidence < X, returns status:low_confidence at $0 (not billed).
+- include=timeseries, brief=1 (see below).
+## assessment_code (stable enum; thresholds on vertical mm/yr)
+- <=-8 rapid_subsidence | (-8,-3] notable_subsidence | (-3,3) stable | [3,8) mild_uplift | >=8 strong_uplift. Route logic on assessment_code, not the human 'assessment' string.
+## More response fields
+- pixel_id (stable 30 m cell id), seasonal_dominant (bool: seasonal swing > trend; read with care), velocity_display ('-6 mm/yr (-0.24 in/yr) +/-2'), queried_at (UTC), reports_remaining, query.geocoded_address (resolved canonical address).
+- Misses carry no_data_reason / no_coverage_reason. ETag + Cache-Control on /motion: send If-None-Match to revalidate for free (304, no charge).
+## brief=1 narration
+- Adds ground_brief (plain-English) + engine code. Free accounts get GL52 (GLM), paying accounts get CL46 (Opus). It always restates the number, the +/- uncertainty, the data date, and the screening disclaimer; it does not invent numbers or give buy/sell/safety advice. Off the fast path (opt-in).
+## Batch response shape (POST /api/v1/motion/batch)
+- {status, summary:{requested,billed,succeeded,no_coverage,invalid,total_cost_usd}, credits_remaining_usd, request_id, results:[ per item ]}.
+- Each result: {id, status:'ok'|'no_data'|'no_coverage'|'invalid_address'|..., cost_usd, ...motion fields when ok}. Duplicate cells in one batch are charged once and flagged same_pixel_as. Send header Idempotency-Key to replay the whole batch for free.
+## Other endpoints
+- GET /api/v1/coverage?address=|lat=&lon= -> per-point {covered, frame, data_age_days, would_cost_usd} (FREE). No args -> live frame list.
+- GET /api/v1/timeseries?...&reference_date=YYYY-MM-DD&reference_date2=YYYY-MM-DD -> adds delta{movement_mm,movement_in,uncertainty_mm,days_between}: how much it moved between two dates.
+- POST /api/v1/account/spend_cap {"daily_usd": N} -> per-key DAILY spend cap (402 spend_cap_reached before drain); null removes it.
+- POST /api/v1/coverage/batch -> FREE batch coverage pre-check (covered/age/would_cost per row); size a job before spending.
+- GET /api/v1/frames and /api/v1/frames/{id}/last_updated -> when frames last got new data (poll to re-pull). FREE.
+- POST /api/v1/motion/batch with {"async":true} -> 202 {job_id}; poll GET /api/v1/motion/batch/{job_id}. {"since":"YYYY-MM-DD"} -> diff-billing (only newly-updated rows billed).
+## MCP server
+- POST https://sibfly.com/mcp (Streamable HTTP, JSON-RPC). Auth: Bearer <api_key>. Tools: check_ground_motion, check_portfolio, get_coverage, get_motion_history, get_account. Misses/coverage/account are free; reports cost $0.40.
+## Agent onboarding & keys (no human needed)
+- POST /api/v1/autonomous/register {email, password?} -> {api_key, free credits}. One call, no captcha; if password omitted it's generated and returned.
+- POST /api/v1/keys {daily_cap_usd?, allowed_referer?, ttl_hours?, label?} -> a SCOPED child key (draws from your credits, capped + referer-locked + revocable). Safe to embed in a public browser widget. GET /api/v1/keys lists; DELETE /api/v1/keys/{key} revokes.
+## More motion params
+- min_geocode_score=0..1 -> free miss if the address only matched a coarse centroid (query.geocode gives match_type/score). compact=1 / fields=a,b,c / units=mm|in -> control payload size.
+- Response adds: near_threshold + significant_nonzero (is the label trustworthy / distinguishable from zero), neighbor_consistent (False = lone-pixel artifact risk), provenance.license (caching/re-serve grant).
+## Machine-readable schema
+- GET /api/v1/schema -> all enums (assessment_code, status, freshness, ...), thresholds, free gates, and the decision-tree as JSON. Parse this instead of prose.
