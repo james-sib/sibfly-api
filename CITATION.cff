@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+title: "SibFly Ground Motion API"
+message: "Measured ground subsidence/uplift (mm/year) per US address from NASA OPERA Sentinel-1 InSAR."
+authors:
+  - name: "SIB Scientific"
+url: "https://sibfly.com"
+repository-code: "https://github.com/james-sib/sibfly-api"
+keywords: [InSAR, subsidence, ground-motion, NASA OPERA, Sentinel-1, geospatial, API, MCP]
