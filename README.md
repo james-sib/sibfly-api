@@ -25,7 +25,34 @@ Returns `velocity_vertical_mm_yr` / `_in_yr`, an uncertainty range, `assessment_
 - Coverage: US (expanding). Not real-time (source refreshes ~every 12 days); a screening estimate, not survey-grade.
 
 ## For AI agents
-Self-registration, free coverage/cost preflight, idempotency keys, per-key spend caps, scoped browser-safe keys, batch, and a hosted **MCP server** (tools: `check_ground_motion`, `check_portfolio`, `get_coverage`, `get_motion_history`, `get_account`). The full, authoritative contract lives at **https://sibfly.com/llms.txt** and **https://sibfly.com/openapi.json** — always current.
+Self-registration, free coverage/cost preflight, idempotency keys, per-key spend caps, scoped browser-safe keys, batch, webhooks, x402 (USDC on Base), test-mode keys, and a hosted **MCP server** with 9 tools: `check_ground_motion`, `check_portfolio`, `get_coverage`, `get_motion_history`, `get_account`, `get_usage`, `ask_inspector`, `register_agent`, `buy_credits`. The full, authoritative contract lives at **https://sibfly.com/llms.txt** and **https://sibfly.com/openapi.json** — always current.
+
+## Connect from an MCP client (Cline, Claude, Cursor, any Streamable-HTTP client)
+
+SibFly is a **hosted (remote)** MCP server — nothing to install or run locally.
+
+1. Get an API key (one call, free credits included, no captcha):
+   ```bash
+   curl -X POST https://sibfly.com/api/v1/autonomous/register \
+     -H "Content-Type: application/json" -d '{"email":"you@example.com"}'
+   ```
+   Save the returned `api_key` (shown once). Or skip this step: connect without a key and call the `register_agent` tool from inside MCP.
+2. Add the server to your MCP client config (Cline: MCP Servers → Remote Servers, or `cline_mcp_settings.json`):
+   ```json
+   {
+     "mcpServers": {
+       "sibfly": {
+         "type": "streamableHttp",
+         "url": "https://sibfly.com/mcp",
+         "headers": { "Authorization": "Bearer sf_live_YOUR_KEY" }
+       }
+     }
+   }
+   ```
+   OAuth 2.1 (Dynamic Client Registration + PKCE) is also supported for clients that prefer a "Connect" flow — discovery at `/.well-known/oauth-authorization-server`.
+3. Try it: call `get_coverage` (free) on any US address, then `check_ground_motion` ($0.40, misses free). `dry_run: true` previews coverage, cost, and expected answer quality without billing. Out of credits? The `buy_credits` tool returns a payment link (card or crypto).
+
+Sandbox: register with `{"mode":"test"}` for an `sf_test_` key — $100 fake credits, synthetic data, rehearse the whole flow for $0.
 
 ## Use cases
 Real-estate due diligence · "is my house sinking?" for home buyers · insurance & mortgage underwriting screening · infrastructure and portfolio subsidence monitoring · geotechnical pre-screening.
